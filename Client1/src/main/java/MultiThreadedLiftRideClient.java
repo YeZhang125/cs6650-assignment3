@@ -9,7 +9,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.Random;
 
 public class MultiThreadedLiftRideClient {
-  private static final String SERVER_URL = "http://localhost:8080/assignment1_war";
+  private static final String SERVER_URL = "http://44.245.81.86:8080/assignment1_war";
 
   private static final int TOTAL_REQUESTS = 200000;
   private static final int NUM_THREADS =200;
@@ -32,7 +32,7 @@ public class MultiThreadedLiftRideClient {
 
     for (int i = 0; i < NUM_THREADS; i++) {
       HTTPClientThread client = new HTTPClientThread(SERVER_URL, successfulRequests, failedRequests, BATCH_SIZE);
-      futures.add(  executor.submit(client));
+      futures.add(executor.submit(client));
     }
 
     // Wait for all threads to complete
@@ -65,7 +65,7 @@ public class MultiThreadedLiftRideClient {
     long endTime = System.currentTimeMillis(); // End timing
     double totalTimeSeconds = (endTime - startTime) / 1000.0;
     double throughput = successfulRequests.get() / totalTimeSeconds;
-    System.out.println("Total requests: " + successfulRequests + failedRequests);
+  //  System.out.println("Total requests: " + successfulRequests.get() + failedRequests.get());
     System.out.println("Successful requests: " + successfulRequests.get());
     System.out.println("Failed requests: " + failedRequests.get());
     System.out.println("Total time: " + totalTimeSeconds + " seconds");
