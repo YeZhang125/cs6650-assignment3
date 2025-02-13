@@ -6,7 +6,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 
 public class MultiThreadedLiftRideClient {
-   private static final String SERVER_URL = "http://44.243.12.46:8080/assignment1_war";
+   private static final String SERVER_URL = "http://18.246.232.176:8080/assignment1_war";
   private static final int TOTAL_REQUESTS = 200000;
   private static final int NUMBER_OF_THREADS = 200;
   private static final int REQUEST_PER_THREAD = 1000;
