@@ -1,6 +1,6 @@
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.atomic.AtomicInteger;
+
 
 public class EventProducer implements Runnable{
     private static final int  TOTAL_REQUESTS = 200000;
