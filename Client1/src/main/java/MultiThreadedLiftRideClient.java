@@ -14,37 +14,37 @@ public class MultiThreadedLiftRideClient {
   private static final AtomicInteger failedRequests = new AtomicInteger(0);
 
   public static void main(String[] args) throws InterruptedException, ExecutionException {
-    Thread eventGeneratorThread = new Thread(new EventProducer());
-    eventGeneratorThread.start();
+    Thread eventProducerThread = new Thread(new EventProducer());
+    eventProducerThread.start();
 
-    ExecutorService executorService = Executors.newFixedThreadPool(NUMBER_OF_THREADS);
+    ExecutorService executor = Executors.newFixedThreadPool(NUMBER_OF_THREADS);
     List<Future<Void>> futures = new ArrayList<>();
 
     long startTime = System.currentTimeMillis();
 
     for (int i = 0; i < NUMBER_OF_THREADS; i++) {
       HTTPClientThread clientThread = new HTTPClientThread(SERVER_URL, successfulRequests, failedRequests, REQUEST_PER_THREAD);
-      futures.add(executorService.submit(clientThread));
+      futures.add(executor.submit(clientThread));
     }
 
     for (Future<Void> future : futures) {
       future.get();
     }
 
-    eventGeneratorThread.join();
-
-    executorService.shutdown();
+    eventProducerThread.join();
+    executor.shutdown();
 
     long endTime = System.currentTimeMillis();
-    long wallTime = endTime - startTime;
+    long responseTime = endTime - startTime;
 
-    System.out.println("This is the Part 1 Output: ");
-    System.out.println("Number of Threads used: " + NUMBER_OF_THREADS);
-    System.out.println("Total requests sent: " + TOTAL_REQUESTS);
+    System.out.println("======= Client 1 Output ======= ");
+    System.out.println("Number of Threads: " + NUMBER_OF_THREADS);
     System.out.println("Successful requests: " + successfulRequests.get());
     System.out.println("Failed requests: " + failedRequests.get());
-    System.out.println("Total wall time: " + wallTime + " ms");
-    System.out.println("Throughput: " + (TOTAL_REQUESTS / (wallTime / 1000.0)) + " requests per second");
+    System.out.println("Total requests sent: " + successfulRequests.get());
+
+    System.out.println("Total response time: " + responseTime + " ms");
+    System.out.println("Throughput: " + (TOTAL_REQUESTS / (responseTime / 1000.0)) + " requests per second");
 
     LatencyComputationForClient2.latencyComputation("request_logs.csv", TOTAL_REQUESTS);
   }

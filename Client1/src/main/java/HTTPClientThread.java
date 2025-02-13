@@ -22,7 +22,6 @@ public class HTTPClientThread implements Callable<Void> {
     private final Integer requestPerThread;
     private static final String LOG_FILE = "request_logs.csv";
 
-    // Constructor to initialize the thread parameters
     public HTTPClientThread(String baseUrl, AtomicInteger successfulRequests, AtomicInteger failedRequests, Integer requestPerThread) {
     this.baseUrl = baseUrl;
     this.successfulRequests = successfulRequests;
@@ -84,11 +83,12 @@ public class HTTPClientThread implements Callable<Void> {
             }
 
               retries++;
-              if (retries >= 5) {
-                  failedRequests.incrementAndGet();
-              }
               if (retries < 5) {
                   TimeUnit.SECONDS.sleep(1);
+              }
+              if (retries >= 5) {
+                  failedRequests.incrementAndGet();
+                  break;
               }
           }
         }

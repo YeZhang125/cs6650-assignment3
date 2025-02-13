@@ -1,9 +1,5 @@
-
-
 import java.io.BufferedReader;
-
 import java.io.FileReader;
-
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -46,12 +42,13 @@ public class LatencyComputationForClient2 {
     double throughput = totalRequests / (totalLatency / 1000.0);
 
     System.out.println();
-    System.out.println("This is the Part 2 Output: ");
+    System.out.println("======= Client 2 Output ======= ");
     System.out.println("Mean Response Time: " + meanLatency + " ms");
     System.out.println("Median Response Time: " + medianLatency + " ms");
-    System.out.println("99th Percentile Response Time: " + p99Latency + " ms");
     System.out.println("Min Response Time: " + minLatency + " ms");
     System.out.println("Max Response Time: " + maxLatency + " ms");
+    System.out.println("99th Percentile Response Time: " + p99Latency + " ms");
+
     System.out.println("Throughput per thread: " + throughput + " requests/sec");
     System.out.println("Estimated throughput for " + INITIAL_THREADS + " thread: " + throughput * INITIAL_THREADS + " requests/sec");
   }
