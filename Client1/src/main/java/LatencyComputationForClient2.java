@@ -41,16 +41,23 @@ public class LatencyComputationForClient2 {
     long p99Latency = latencies.get((int) (latencies.size() * 0.99));
     double throughput = totalRequests / (totalLatency / 1000.0);
 
+    // Call the method to print stats
+    printLatencyStats(meanLatency, medianLatency, minLatency, maxLatency, p99Latency, throughput);
+  }
+
+
+  private static void printLatencyStats(double meanLatency, long medianLatency, long minLatency,
+                                        long maxLatency, long p99Latency, double throughput) {
     System.out.println();
     System.out.println("======= Client 2 Output ======= ");
     System.out.println("Mean Response Time: " + meanLatency + " ms");
     System.out.println("Median Response Time: " + medianLatency + " ms");
     System.out.println("Min Response Time: " + minLatency + " ms");
     System.out.println("Max Response Time: " + maxLatency + " ms");
-    System.out.println("99th Percentile Response Time: " + p99Latency + " ms");
+    System.out.println("Response Time at 99th Percentile: " + p99Latency + " ms");
 
-    System.out.println("Throughput per thread: " + throughput + " requests/sec");
-    System.out.println("Estimated throughput for " + INITIAL_THREADS + " thread: " + throughput * INITIAL_THREADS + " requests/sec");
+    System.out.println("Throughput per individual thread: " + throughput + " requests/sec");
+    System.out.println("Estimated overall throughput with " + INITIAL_THREADS + " threads: " + throughput * INITIAL_THREADS + " requests/second");
   }
 }
 

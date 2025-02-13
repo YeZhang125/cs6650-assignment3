@@ -58,12 +58,9 @@ public class HTTPClientThread implements Callable<Void> {
             long latency = endTime - startTime;
             double throughput = 1000.0 / latency;
 
-            synchronized (HTTPClientThread.class) {
-              writer.printf("%d,POST,%d,%d,%.2f%n", startTime, latency, response.statusCode(), throughput);
-              writer.flush();
-            }
+              logRequestData(writer, startTime, latency, response.statusCode(), throughput);
 
-            if (response.statusCode() == 201) {
+              if (response.statusCode() == 201) {
               successfulRequests.incrementAndGet();
               break;
             } else {
@@ -77,10 +74,8 @@ public class HTTPClientThread implements Callable<Void> {
             long latency = endTime - startTime;
             double throughput = 1000.0 / latency;
 
-            synchronized (HTTPClientThread.class) {
-              writer.printf("%d,POST,%d,500,%.2f%n", startTime, latency, throughput);
-              writer.flush();
-            }
+              logRequestData(writer, startTime, latency, 500, throughput);
+
 
               retries++;
               if (retries < 5) {
@@ -98,4 +93,8 @@ public class HTTPClientThread implements Callable<Void> {
     }
     return null;
   }
+    private synchronized void logRequestData(PrintWriter writer, long startTime, long latency, int statusCode, double throughput) {
+        writer.printf("%d,POST,%d,%d,%.2f%n", startTime, latency, statusCode, throughput);
+        writer.flush();
+    }
 }

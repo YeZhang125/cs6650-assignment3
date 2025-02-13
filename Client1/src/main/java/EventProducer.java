@@ -8,19 +8,19 @@ public class EventProducer implements Runnable{
 
     @Override
     public void run() {
-        int eventCount = 0;
-        while (eventCount < TOTAL_REQUESTS) {
+        int eventCounter = 0;
+        while (eventCounter < TOTAL_REQUESTS) {
 
             SkierLiftEvent event = SkierLiftProducer.generateSkierLiftEvent();
             try {
                 skierEventQueue.put(event);
-                eventCount++;
+                eventCounter++;
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 break;
             }
         }
-       // System.out.println("Event producer thread completed generating events.");
+
     }
 
     public static SkierLiftEvent getEvent() throws InterruptedException {

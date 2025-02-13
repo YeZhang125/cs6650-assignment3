@@ -1,17 +1,16 @@
-import javax.servlet.ServletException;
+
 import javax.servlet.annotation.WebServlet;
 import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.ObjectInputFilter;
+
 import java.io.PrintWriter;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
-import org.json.JSONObject;
-import org.json.JSONException;
+
 
 @WebServlet(name = "server.SkierServlet", urlPatterns = "/skiers/*")
 public class SkierServlet extends HttpServlet {
