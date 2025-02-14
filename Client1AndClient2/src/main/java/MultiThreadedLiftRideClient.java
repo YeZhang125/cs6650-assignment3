@@ -6,9 +6,9 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 
 public class MultiThreadedLiftRideClient {
-   private static final String SERVER_URL = "http://18.246.232.176:8080/assignment1_war";
+   private static final String SERVER_URL = "http://35.90.8.203:8080/assignment1_war";
   private static final int TOTAL_REQUESTS = 200000;
-  private static final int NUMBER_OF_THREADS = 200;
+  private static final int NUMBER_OF_THREADS = 500;
   private static final int REQUEST_PER_THREAD = 1000;
   private static final AtomicInteger successfulCount = new AtomicInteger(0);
   private static final AtomicInteger failedCount = new AtomicInteger(0);

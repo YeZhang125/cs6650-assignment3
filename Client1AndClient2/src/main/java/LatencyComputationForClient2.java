@@ -6,7 +6,7 @@ import java.util.Collections;
 import java.util.List;
 
 public class LatencyComputationForClient2 {
-     private static final int INITIAL_THREADS = 200;
+     private static final int THREADS = 500;
   public static void latencyComputation(String logFile, int totalRequests) {
     List<Long> latencies = new ArrayList<>();
     long totalLatency = 0;
@@ -50,16 +50,21 @@ public class LatencyComputationForClient2 {
                                         long maxLatency, long p99Latency, double throughput) {
     System.out.println();
     System.out.println("======= Client 2 Output ======= ");
-    System.out.println("Mean Response Time: " + meanLatency + " ms");
-    System.out.println("Median Response Time: " + medianLatency + " ms");
-    System.out.println("Min Response Time: " + minLatency + " ms");
-    System.out.println("Max Response Time: " + maxLatency + " ms");
-    System.out.println("Response Time at 99th Percentile: " + p99Latency + " ms");
+    System.out.println("Response Time Metrics:");
+    System.out.println("----------------------");
+    System.out.println("Average: " + meanLatency + " ms");
+    System.out.println("Median: " + medianLatency + " ms");
+    System.out.println("Minimum: " + minLatency + " ms");
+    System.out.println("Maximum: " + maxLatency + " ms");
+    System.out.println("99th Percentile: " + p99Latency + " ms");
 
-    System.out.println("Throughput per individual thread: " + throughput + " requests/sec");
-    System.out.println("Estimated overall throughput with " + INITIAL_THREADS + " threads: " + throughput * INITIAL_THREADS + " requests/second");
+    System.out.println("\nThroughput Metrics:");
+    System.out.println("-------------------");
+    System.out.println("Per-thread: " + throughput + " requests/sec");
+    System.out.println("Estimated Total (" + THREADS + " threads): "
+            + (throughput * THREADS) + " requests/sec");
   }
-}
+  }
 
 
 
