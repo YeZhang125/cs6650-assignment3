@@ -6,10 +6,10 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 
 public class MultiThreadedLiftRideClient {
-   private static final String SERVER_URL = "http://35.90.8.203:8080/assignment1_war";
+   private static final String SERVER_URL = "http://52.37.115.176:8080/assignment1_war";
   private static final int TOTAL_REQUESTS = 200000;
   private static final int NUMBER_OF_THREADS = 500;
-  private static final int REQUEST_PER_THREAD = 1000;
+  private static final int REQUEST_PER_THREAD = 400;
   private static final AtomicInteger successfulCount = new AtomicInteger(0);
   private static final AtomicInteger failedCount = new AtomicInteger(0);
   private static final  String LOG_FILE = "request_logs.csv";
@@ -47,6 +47,6 @@ public class MultiThreadedLiftRideClient {
     System.out.println("Throughput: " + (TOTAL_REQUESTS / (responseTime / 1000.0)) + " requests per second");
 
 
-    LatencyComputationForClient2.latencyComputation(LOG_FILE, TOTAL_REQUESTS);
+   // LatencyComputationForClient2.latencyComputation(LOG_FILE, TOTAL_REQUESTS);
   }
 }
