@@ -1,4 +1,3 @@
-
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonSyntaxException;
@@ -6,9 +5,7 @@ import com.rabbitmq.client.AMQP;
 import com.rabbitmq.client.Channel;
 import com.rabbitmq.client.Connection;
 import com.rabbitmq.client.ConnectionFactory;
-
 import javax.servlet.ServletException;
-
 import javax.servlet.annotation.WebServlet;
 import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
@@ -24,13 +21,14 @@ import java.util.concurrent.TimeoutException;
 
 @WebServlet( name = "SkierServlet", urlPatterns = "/skiers/*")
 public class SkierServlet extends HttpServlet {
-  private static final String QUEUE_NAME = "skier_queue";
-  private static final String HOST = "35.89.251.156";
-  private static final int POOL_SIZE = 10;  // Number of pre-created channels
+
+  private static final String HOST = "35.92.148.147";
+  private static final int POOL_SIZE = 100;  // Number of pre-created channels
+  private static final int QUEUE_COUNT = 1; // Number of queues
   private Connection connection;
   private BlockingQueue<Channel> channelPool;
   private Gson gson = new Gson();
-
+  private static final String QUEUE_PREFIX = "skier_queue_";
   @Override
   public void init() throws ServletException {
     try {
@@ -45,10 +43,19 @@ public class SkierServlet extends HttpServlet {
       for (int i = 0; i < POOL_SIZE; i++) {
         channelPool.add(connection.createChannel());
       }
+
+      // Declare queues dynamically
+      try (Channel channel = connection.createChannel()) {
+        for (int i = 1; i <= QUEUE_COUNT; i++) {
+          channel.queueDeclare(QUEUE_PREFIX + i, true, false, false, null);
+        }
+      }
+
     } catch (IOException | TimeoutException e) {
       throw new ServletException("Failed to connect to RabbitMQ", e);
     }
   }
+
 
   @Override
   protected void doPost(HttpServletRequest request, HttpServletResponse resp) throws IOException {
@@ -80,6 +87,9 @@ public class SkierServlet extends HttpServlet {
     }
 
     String requestBody = readRequestBody(request);
+    System.out.println("Request body: " + requestBody);
+
+
     if (requestBody == null || requestBody.isEmpty()) {
       sendErrorResponse(resp, "Request body is empty.");
       return;
@@ -97,34 +107,38 @@ public class SkierServlet extends HttpServlet {
       sendErrorResponse(resp, "Invalid JSON syntax.");
       return;
     }
-   // JsonObject jsonObject = gson.fromJson(requestBody, JsonObject.class);
 
     if (!jsonObject.has("liftID") || !jsonObject.has("time")) {
       sendErrorResponse(resp, "Missing required fields (liftID, time)");
       return;
     }
+    //Select queue dynamically (Hashing-Based)
+    String queueName = getQueueForSkier(skierID);
 
     // Publish message to RabbitMQ
     try {
-      Channel channel = channelPool.poll(500, TimeUnit.MILLISECONDS); // Non-blocking poll
-//      if (channel == null) {
-//        sendErrorResponse(resp, "Failed to get a RabbitMQ channel from the pool.");
-//        return;
-//      }
+      Channel channel = channelPool.poll(500, TimeUnit.MILLISECONDS);
+      if (channel == null) {
+        sendErrorResponse(resp, "Failed to get a RabbitMQ channel from the pool.");
+        return;
+      }
 
-        channel.queueDeclare(QUEUE_NAME, true, false, false, null);
-      // Set basic properties (e.g., content type, headers) for AMQP
       AMQP.BasicProperties properties = new AMQP.BasicProperties.Builder()
               .contentType("application/json")
               .build();
-      channel.basicPublish("", QUEUE_NAME, properties, requestBody.getBytes(StandardCharsets.UTF_8));
-      channelPool.add(channel); // Return channel to pool
 
-      sendSuccessResponse(resp, "Skier processed successfully");
+      channel.basicPublish("", queueName, properties, requestBody.getBytes(StandardCharsets.UTF_8));
+      channelPool.add(channel);
+
+      sendSuccessResponse(resp, "Skier processed successfully in queue: " + queueName);
     } catch (Exception e) {
       sendErrorResponse(resp, "Failed to send message to RabbitMQ: " + e.getMessage());
     }
+  }
 
+  private String getQueueForSkier(int skierID) {
+    int queueIndex = skierID % QUEUE_COUNT; // Ensures skier always goes to the same queue
+    return QUEUE_PREFIX + (queueIndex + 1);
   }
 
   @Override
@@ -137,18 +151,17 @@ public class SkierServlet extends HttpServlet {
         connection.close();
       }
     } catch (IOException | TimeoutException e) {
-      e.printStackTrace();
+      System.out.println("Failed to close RabbitMQ connection");
     }
   }
 
   @Override
   protected void doGet(HttpServletRequest request, HttpServletResponse response) throws IOException {
     response.setContentType("text/html");
+    response.setStatus(HttpServletResponse.SC_OK);
     PrintWriter out = response.getWriter();
     out.println("<h1>It works! :)</h1>");
-
   }
-
 
   // Helper Methods
   private int parseInt(String value, HttpServletResponse resp, String errorMsg) throws IOException {
@@ -190,4 +203,5 @@ public class SkierServlet extends HttpServlet {
     String message;
     SuccessResponse(String message) { this.message = message; }
   }
+
 }
