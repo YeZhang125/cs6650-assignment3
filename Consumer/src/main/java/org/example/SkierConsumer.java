@@ -8,14 +8,12 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.*;
 
-public class SkierConsumer {
+ public class SkierConsumer {
     private static final String HOST = "34.222.11.231";
-    private static final String queueName = "skier_queue";
-    private static final int THREAD_COUNT = 300;
+    private static final String QUEUE_NAME = "skier_queue";
+    private static final int THREAD_COUNT = 5;
     private static final int PREFETCH_COUNT = 100;
     private Connection connection;
     private ExecutorService executorService;
@@ -42,7 +40,7 @@ public class SkierConsumer {
       //   Start multiple consumers per queue
 
         for (int i = 0; i < THREAD_COUNT; i++) {
-            executorService.submit(new ConsumerTask(connection, queueName));
+            executorService.submit(new ConsumerTask(connection, QUEUE_NAME));
         }
 
     }

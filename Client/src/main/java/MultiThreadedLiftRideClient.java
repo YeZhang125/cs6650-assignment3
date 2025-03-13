@@ -10,10 +10,10 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 
 public class MultiThreadedLiftRideClient {
-    private static final String SERVER_URL = "http://35.160.134.206:8080/assignment1_war";
+    private static final String SERVER_URL = "http://lb-1683730681.us-west-2.elb.amazonaws.com:80/assignment1_war";
     private static final int TOTAL_REQUESTS = 200000;
-    private static final int NUMBER_OF_THREADS = 500;
-    private static final int REQUEST_PER_THREAD = 400;
+    private static final int NUMBER_OF_THREADS = 200;
+    private static final int REQUEST_PER_THREAD = 1000;
     private static final int REQUEST_PER_INITIAL_THREAD = 1000;
     private static final AtomicInteger successfulCount = new AtomicInteger(0);
     private static final AtomicInteger failedCount = new AtomicInteger(0);
