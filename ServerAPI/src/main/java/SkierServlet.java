@@ -89,20 +89,8 @@ public class SkierServlet extends HttpServlet {
     }
 
 
-    String requestBody = readRequestBody(request);
-    System.out.println("Request body: " + requestBody);
-    JsonObject jsonObject = null;
-    try {
-      jsonObject = gson.fromJson(requestBody, JsonObject.class);
-      if (jsonObject == null || !jsonObject.isJsonObject()) {
-        sendErrorResponse(resp, "Invalid JSON format.");
-        return;
-      }
-    } catch (JsonSyntaxException e) {
-      sendErrorResponse(resp, "Invalid JSON syntax.");
-      return;
-    }
-
+    JsonObject jsonObject = parseAndValidateJson(request, resp);
+    if (jsonObject == null) return;
     if (!jsonObject.has("liftID") || !jsonObject.has("time")) {
       sendErrorResponse(resp, "Missing required fields (liftID, time)");
       return;
@@ -171,7 +159,20 @@ public class SkierServlet extends HttpServlet {
     }
     return sb.toString();
   }
-
+  private JsonObject parseAndValidateJson(HttpServletRequest request, HttpServletResponse response) throws IOException {
+    String requestBody = readRequestBody(request);
+    try {
+      JsonObject jsonObject = gson.fromJson(requestBody, JsonObject.class);
+      if (jsonObject == null || !jsonObject.has("liftID") || !jsonObject.has("time")) {
+        sendErrorResponse(response, "Missing required fields (liftID, time)");
+        return null;
+      }
+      return jsonObject;
+    } catch (JsonSyntaxException e) {
+      sendErrorResponse(response, "Invalid JSON syntax.");
+      return null;
+    }
+  }
   private void sendErrorResponse(HttpServletResponse resp, String message) throws IOException {
     resp.setStatus(HttpServletResponse.SC_BAD_REQUEST);
     resp.getWriter().write(gson.toJson(new ErrorResponse(message)));
