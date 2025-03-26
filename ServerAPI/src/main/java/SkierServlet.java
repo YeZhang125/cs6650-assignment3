@@ -1,7 +1,6 @@
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonSyntaxException;
-import com.rabbitmq.client.AMQP;
 import com.rabbitmq.client.Channel;
 import com.rabbitmq.client.Connection;
 import com.rabbitmq.client.ConnectionFactory;
@@ -18,8 +17,9 @@ import java.util.concurrent.*;
 
 @WebServlet( name = "SkierServlet", urlPatterns = "/skiers/*")
 public class SkierServlet extends HttpServlet {
-
-  private static final String HOST = "34.222.11.231";
+    private static final String USERNAME = "test_user";
+  private static final String PASSWORD = "test_password";
+  private static final String HOST = "44.244.27.7";
   private static final int POOL_SIZE = 300;  // Number of pre-created channels
   private Connection connection;
   private BlockingQueue<Channel> channelPool;
@@ -30,21 +30,17 @@ public class SkierServlet extends HttpServlet {
     try {
       ConnectionFactory factory = new ConnectionFactory();
       factory.setHost(HOST);
-      factory.setUsername("test_user");
-      factory.setPassword("test_password");
+      factory.setUsername(USERNAME);
+      factory.setPassword(PASSWORD);
       this.connection = factory.newConnection();
 
       // Initialize channel pool
       channelPool = new ArrayBlockingQueue<>(POOL_SIZE);
       for (int i = 0; i < POOL_SIZE; i++) {
-       Channel channel = connection.createChannel();
+        Channel channel = connection.createChannel();
         channel.queueDeclare(QUEUE_NAME, true, false, false, null);
         channelPool.offer(channel);
-
-
       }
-
-
     } catch (IOException | TimeoutException e) {
       throw new ServletException("Failed to connect to RabbitMQ", e);
     }
@@ -60,15 +56,27 @@ public class SkierServlet extends HttpServlet {
       return;
     }
 
-    String[] url = request.getPathInfo().split("/");
-    if (url.length != 8) {
+    String[] url = request.getPathInfo() != null ? request.getPathInfo().split("/") : new String[0];
+   // System.out.println("URL: " + url);
+    if (url.length != 8 ) {
       sendErrorResponse(resp, "Invalid URL format! Expected: /skiers/{resortID}/seasons/{seasonID}/days/{dayID}/skiers/{skierID}");
       return;
     }
+//    String skiers = url[0];
+//    if (!(skiers == "skiers")) {
+//      sendErrorResponse(resp, "Invalid URL format! Expected: /skiers/{resortID}/seasons/{seasonID}/days/{dayID}/skiers/{skierID}");
+//      return;
+//    }
 
-    int resortID = parseInt(url[1], resp, "Invalid resortID!");
     String dayID = url[5];
+    String seasonID =  url[3];
+    int resortID = parseInt(url[1], resp, "Invalid resortID!");
     int skierID = parseInt(url[7], resp, "Invalid skierID!");
+    // Check if they are positive integers using regex
+    if (!seasonID.matches("\\d+") || !dayID.matches("\\d+")) {
+      sendErrorResponse(resp, "Either seasonID or dayID is not a positive integer.");
+      return;
+    }
 
     if (!dayID.matches("^([1-9]|[1-9][0-9]|[12][0-9][0-9]|3[0-5][0-9]|36[0-6])$")) {
       sendErrorResponse(resp, "Invalid day ID!");
@@ -110,11 +118,6 @@ public class SkierServlet extends HttpServlet {
     // Publish message to RabbitMQ
     try {
       Channel channel = channelPool.take();
-//      if (channel == null) {
-//        sendErrorResponse(resp, "Failed to get a RabbitMQ channel from the pool.");
-//        return;
-//      }
-
       channel.basicPublish("", QUEUE_NAME, null, jsonObject.toString().getBytes(StandardCharsets.UTF_8));
       channelPool.offer(channel);
 
@@ -190,5 +193,4 @@ public class SkierServlet extends HttpServlet {
   }
 
 }
-
 
