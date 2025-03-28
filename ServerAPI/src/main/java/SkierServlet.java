@@ -16,7 +16,7 @@ import java.util.concurrent.TimeoutException;
 public class SkierServlet extends HttpServlet {
   private static final String USERNAME = "test_user";
   private static final String PASSWORD = "test_password";
-  private static final String HOST = "34.217.212.191";
+  private static final String HOST = "54.203.65.33";
    private RabbitMQClient rabbitMQClient;
   private Gson gson = new Gson();
 
@@ -82,7 +82,7 @@ public class SkierServlet extends HttpServlet {
 
     try {
      rabbitMQClient.publishMessage(jsonObject.toString());
-
+      sendSuccessResponse(resp);
     } catch (Exception e) {
       sendErrorResponse(resp, "Failed to send message to RabbitMQ: " + e.getMessage());
     }
@@ -143,6 +143,10 @@ public class SkierServlet extends HttpServlet {
     resp.getWriter().write(gson.toJson(new ErrorResponse(message)));
   }
 
+  private void sendSuccessResponse(HttpServletResponse resp) throws IOException {
+    resp.setStatus(HttpServletResponse.SC_CREATED);
+    resp.getWriter().write(gson.toJson(new SuccessResponse("Skier processed successfully in queue: skier_queue_1")));
+  }
 
 
   static class ErrorResponse {

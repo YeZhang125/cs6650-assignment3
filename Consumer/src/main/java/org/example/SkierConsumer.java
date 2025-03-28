@@ -1,4 +1,3 @@
-
 package org.example;
 
 import com.google.gson.JsonObject;
@@ -12,22 +11,23 @@ import java.nio.charset.StandardCharsets;
 import java.util.concurrent.*;
 
 public class SkierConsumer {
-    private static final String HOST = "34.217.212.191";
+    private static final String HOST = "54.203.65.33";
     private static final String QUEUE_NAME = "skier_queue";
-    private static final String RESPONSE_QUEUE = "skier_response_queue"; // New response queue
     private static final int THREAD_COUNT = 5;
     private static final int PREFETCH_COUNT = 100;
-    private static final String USERNAME = "test_user";
+    private static final   String USERNAME = "test_user";
     private static final String PASSWORD = "test_password";
     private Connection connection;
     private static ExecutorService executorService;
-    private static final String DBHost = "44.247.153.135";
+    private static final String DBHost = "54.213.220.110";
     private static final JedisPool jedisPool = new JedisPool(new JedisPoolConfig(), DBHost , 6379);
 
     public static void main(String[] args) throws Exception {
+
+        // Initialize the connection pool
+
         SkierConsumer consumer = new SkierConsumer();
         consumer.startConsuming();
-
         // Graceful shutdown hook
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             System.out.println("Shutting down consumers...");
@@ -39,6 +39,7 @@ public class SkierConsumer {
         }));
     }
 
+
     public void startConsuming() throws Exception {
         ConnectionFactory factory = new ConnectionFactory();
         factory.setHost(HOST);
@@ -46,7 +47,6 @@ public class SkierConsumer {
         factory.setPassword(PASSWORD);
         factory.setAutomaticRecoveryEnabled(true);
         factory.setRequestedHeartbeat(30);
-
         // Establish a single connection
         connection = factory.newConnection();
 
@@ -55,15 +55,14 @@ public class SkierConsumer {
 
         // Main thread - Declare queue only once before launching threads
         Channel mainChannel = connection.createChannel();
-        // Declare the response queue only once
-        mainChannel.queueDeclare(RESPONSE_QUEUE, true, false, false, null);
-        // Declare the main queue and start multiple consumers
         mainChannel.queueDeclare(QUEUE_NAME, true, false, false, null);
 
-        // Start multiple consumers per queue
+        //   Start multiple consumers per queue
+
         for (int i = 0; i < THREAD_COUNT; i++) {
             executorService.submit(new ConsumerTask(connection, QUEUE_NAME));
         }
+
     }
 
     public void stopConsuming() throws Exception {
@@ -92,6 +91,7 @@ public class SkierConsumer {
         }
     }
 
+
     // Consumer task for multi-threading
     private static class ConsumerTask implements Runnable {
 
@@ -105,48 +105,31 @@ public class SkierConsumer {
 
         @Override
         public void run() {
-
             try {
-                // Create a new channel
-              Channel  channel = connection.createChannel();
-                // Set QoS (Quality of Service)
-                channel.basicQos(PREFETCH_COUNT);
+                Channel channel = connection.createChannel();
 
-                // Declare the queue
-                channel.queueDeclare(queueName, true, false, false, null);
+                channel.basicQos(PREFETCH_COUNT); // Limit to one unacknowledged message per consumer
+
                 System.out.println(" [*] Waiting for messages in " + queueName);
-
-                // Consume messages
 
                 channel.basicConsume(queueName, false, (consumerTag, delivery) -> {
                     String message = new String(delivery.getBody(), StandardCharsets.UTF_8);
-                    String correlationId = delivery.getProperties().getCorrelationId();
                     System.out.println(" [x] Received from " + queueName + ": " + message);
 
                     try {
-                        boolean processedSuccessfully = storeMessage(message);  // Process message
-
-                        // Acknowledge only if processing is successful
-                        if (processedSuccessfully) {
-                            channel.basicAck(delivery.getEnvelope().getDeliveryTag(), false);
-                        } else {
-                            channel.basicNack(delivery.getEnvelope().getDeliveryTag(), false, false);
-                        }
+                        storeMessage(message);  // Process message
+                        channel.basicAck(delivery.getEnvelope().getDeliveryTag(), false);  // Acknowledge
                     } catch (Exception e) {
                         System.err.println("Error processing message: " + e.getMessage());
-
-                        // Handle the error and nack the message if needed
-                        try {
-                            channel.basicNack(delivery.getEnvelope().getDeliveryTag(), false, false);
-                        } catch (IOException ioException) {
-                            System.err.println("Error acknowledging message: " + ioException.getMessage());
-                        }
+                        // Nack the message and do not requeue
+                        channel.basicNack(delivery.getEnvelope().getDeliveryTag(), false, false);
                     }
+
                 }, consumerTag -> {
                     System.out.println("Cancelled consumption of queue: " + queueName);
+
                 });
 
-                // Wait indefinitely for incoming messages
                 synchronized (this) {
                     try {
                         wait();
@@ -154,46 +137,54 @@ public class SkierConsumer {
                         throw new RuntimeException(e);
                     }
                 }
-
             } catch (IOException e) {
-                System.err.println("Error with RabbitMQ connection or channel: " + e.getMessage());
+                System.err.println(e.getMessage());
             }
         }
-        private boolean storeMessage(String message) {
-            try (Jedis jedis = jedisPool.getResource()) {
-                JsonObject jsonObject = JsonParser.parseString(message).getAsJsonObject();
-                int skierID = jsonObject.get("skierID").getAsInt();
-                int liftID = jsonObject.get("liftID").getAsInt();
-                int resortID = jsonObject.get("resortID").getAsInt();
-                int dayID = jsonObject.get("dayID").getAsInt();
-                int seasonID = jsonObject.get("seasonID").getAsInt();
-                int time = jsonObject.get("time").getAsInt();
 
-                // For skier N, how many days have they skied this season?
-                String skierSeasonKey = "skier:" + skierID + ":" + seasonID + ":days_skied";
-                jedis.incrBy(skierSeasonKey, 1);
+        private void storeMessage(String message) {
+            CompletableFuture.runAsync(() -> {
+                try(Jedis jedis = jedisPool.getResource()){
+                    JsonObject jsonObject =  JsonParser.parseString(message).getAsJsonObject();
+                    int skierID = jsonObject.get("skierID").getAsInt();
+                    int liftID = jsonObject.get("liftID").getAsInt();
+                    int resortID = jsonObject.get("resortID").getAsInt();
+                    int dayID = jsonObject.get("dayID").getAsInt();
+                    int seasonID = jsonObject.get("seasonID").getAsInt();
+                    int time = jsonObject.get("time").getAsInt();
 
-                // For skier N, show me the lifts they rode on each ski day
-                String skierKey = "skier:" + skierID + ":" + seasonID + ":" + dayID;
-                String liftIDKey = "liftID: " + liftID;
-                String timeKey = "time: " + time;
-                jedis.hset(skierKey, liftIDKey, timeKey);
+                    // For skier N, how many days have they skied this season?
+                    // Increment the number of days skied for the current season by 1
+                    // GET skier:123:2025:days_skied
+                    String skierSeasonKey = "skier:" + skierID + ":" + seasonID + ":days_skied";
+                    jedis.incrBy(skierSeasonKey, 1);
 
-                // For skier N, what are the vertical totals for each ski day
-                String verticalKey = "skier:" + skierID + ":vertical";
-                String field = "day:" + dayID;
-                jedis.hincrBy(verticalKey, field, liftID * 10);
+                    // For skier N, show me the lifts they rode on each ski day
+                    // HGETALL skier:<skierID>:<seasonID>:<dayID>
+                    String skierKey = "skier:" + skierID + ":" + seasonID + ":" + dayID;
+                    String liftIDKey =  "liftID: " + liftID;
+                    String timeKey =  "time: " + time;
+                    jedis.hset(skierKey,liftIDKey, timeKey);
 
-                // How many unique skiers visited resort X on day N
-                String resortKey = "resort:" + resortID + ":day:" + dayID + ":skiers";
-                jedis.sadd(resortKey, "The total number of unique skiers: " + String.valueOf(skierID));
 
-                return true;
-            } catch (Exception e) {
-                System.err.println("Error getting Redis connection: " + e.getMessage());
-                return false;
-            }
+                    // For skier N, what are the vertical totals for each ski day
+                    // HGETALL skier:123:vertical.
+                    // This would return a list of all fields and their corresponding vertical totals
+                    String verticalKey = "skier:" + skierID + ":vertical";
+                    String field = "day:" + dayID;
+                    jedis.hincrBy(verticalKey,field, liftID * 10);
+
+                    // How many unique skiers visited resort X on day N
+                    // SCARD resort:1:day:10:skiers would return the total number of unique skiers who visited resort 1 on day 10.
+                    String resortKey = "resort:" + resortID + ":day:" + dayID + ":skiers";
+                    jedis.sadd(resortKey,"The total number of unique skiers: "+ String.valueOf(skierID));
+
+                }catch (Exception e ){
+                    System.err.println("Error getting Redis connection: " + e.getMessage());
+                }
+            }, executorService);
         }
+
 
     }
 }
