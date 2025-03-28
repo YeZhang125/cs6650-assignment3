@@ -1,9 +1,6 @@
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonSyntaxException;
-import com.rabbitmq.client.Channel;
-import com.rabbitmq.client.Connection;
-import com.rabbitmq.client.ConnectionFactory;
 import javax.servlet.ServletException;
 import javax.servlet.annotation.WebServlet;
 import javax.servlet.http.HttpServlet;
@@ -12,40 +9,25 @@ import javax.servlet.http.HttpServletResponse;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.PrintWriter;
-import java.nio.charset.StandardCharsets;
-import java.util.concurrent.*;
+import java.util.UUID;
+import java.util.concurrent.TimeoutException;
 
-@WebServlet( name = "SkierServlet", urlPatterns = "/skiers/*")
+@WebServlet(name = "SkierServlet", urlPatterns = "/skiers/*")
 public class SkierServlet extends HttpServlet {
-    private static final String USERNAME = "test_user";
+  private static final String USERNAME = "test_user";
   private static final String PASSWORD = "test_password";
-  private static final String HOST = "44.244.27.7";
-  private static final int POOL_SIZE = 300;  // Number of pre-created channels
-  private Connection connection;
-  private BlockingQueue<Channel> channelPool;
+  private static final String HOST = "34.217.212.191";
+   private RabbitMQClient rabbitMQClient;
   private Gson gson = new Gson();
-  private static final String QUEUE_NAME = "skier_queue";
+
   @Override
   public void init() throws ServletException {
     try {
-      ConnectionFactory factory = new ConnectionFactory();
-      factory.setHost(HOST);
-      factory.setUsername(USERNAME);
-      factory.setPassword(PASSWORD);
-      this.connection = factory.newConnection();
-
-      // Initialize channel pool
-      channelPool = new ArrayBlockingQueue<>(POOL_SIZE);
-      for (int i = 0; i < POOL_SIZE; i++) {
-        Channel channel = connection.createChannel();
-        channel.queueDeclare(QUEUE_NAME, true, false, false, null);
-        channelPool.offer(channel);
-      }
+      rabbitMQClient = new RabbitMQClient(HOST, USERNAME, PASSWORD);
     } catch (IOException | TimeoutException e) {
-      throw new ServletException("Failed to connect to RabbitMQ", e);
+      throw new ServletException("Failed to initialize RabbitMQ client", e);
     }
   }
-
 
   @Override
   protected void doPost(HttpServletRequest request, HttpServletResponse resp) throws IOException {
@@ -56,23 +38,17 @@ public class SkierServlet extends HttpServlet {
       return;
     }
 
-    String[] url = request.getPathInfo() != null ? request.getPathInfo().split("/") : new String[0];
-   // System.out.println("URL: " + url);
-    if (url.length != 8 ) {
+    String[] url = request.getPathInfo().split("/");
+    if (url.length != 8) {
       sendErrorResponse(resp, "Invalid URL format! Expected: /skiers/{resortID}/seasons/{seasonID}/days/{dayID}/skiers/{skierID}");
       return;
     }
-//    String skiers = url[0];
-//    if (!(skiers == "skiers")) {
-//      sendErrorResponse(resp, "Invalid URL format! Expected: /skiers/{resortID}/seasons/{seasonID}/days/{dayID}/skiers/{skierID}");
-//      return;
-//    }
 
     String dayID = url[5];
-    String seasonID =  url[3];
+    String seasonID = url[3];
     int resortID = parseInt(url[1], resp, "Invalid resortID!");
     int skierID = parseInt(url[7], resp, "Invalid skierID!");
-    // Check if they are positive integers using regex
+
     if (!seasonID.matches("\\d+") || !dayID.matches("\\d+")) {
       sendErrorResponse(resp, "Either seasonID or dayID is not a positive integer.");
       return;
@@ -88,13 +64,15 @@ public class SkierServlet extends HttpServlet {
       return;
     }
 
-
     JsonObject jsonObject = parseAndValidateJson(request, resp);
     if (jsonObject == null) return;
     if (!jsonObject.has("liftID") || !jsonObject.has("time")) {
       sendErrorResponse(resp, "Missing required fields (liftID, time)");
       return;
     }
+    // Add correlation ID to the JSON message
+    String correlationID = UUID.randomUUID().toString();
+    jsonObject.addProperty("correlationID", correlationID);
     jsonObject.addProperty("resortID", resortID);
     jsonObject.addProperty("dayID", dayID);
     jsonObject.addProperty("skierID", skierID);
@@ -102,29 +80,20 @@ public class SkierServlet extends HttpServlet {
     jsonObject.addProperty("time", jsonObject.get("time").getAsString());
     jsonObject.addProperty("liftID", jsonObject.get("liftID").getAsInt());
 
-
-    // Publish message to RabbitMQ
     try {
-      Channel channel = channelPool.take();
-      channel.basicPublish("", QUEUE_NAME, null, jsonObject.toString().getBytes(StandardCharsets.UTF_8));
-      channelPool.offer(channel);
+     rabbitMQClient.publishMessage(jsonObject.toString());
 
-      sendSuccessResponse(resp);
     } catch (Exception e) {
       sendErrorResponse(resp, "Failed to send message to RabbitMQ: " + e.getMessage());
     }
+
   }
-
-
 
   @Override
   public void destroy() {
     try {
-      if (connection != null) {
-        for (Channel channel : channelPool) {
-          channel.close();
-        }
-        connection.close();
+      if (rabbitMQClient != null) {
+        rabbitMQClient.close();
       }
     } catch (IOException | TimeoutException e) {
       System.out.println("Failed to close RabbitMQ connection");
@@ -139,7 +108,6 @@ public class SkierServlet extends HttpServlet {
     out.println("<h1>It works! :)</h1>");
   }
 
-  // Helper Methods
   private int parseInt(String value, HttpServletResponse resp, String errorMsg) throws IOException {
     try {
       return Integer.parseInt(value);
@@ -159,29 +127,23 @@ public class SkierServlet extends HttpServlet {
     }
     return sb.toString();
   }
+
   private JsonObject parseAndValidateJson(HttpServletRequest request, HttpServletResponse response) throws IOException {
     String requestBody = readRequestBody(request);
     try {
-      JsonObject jsonObject = gson.fromJson(requestBody, JsonObject.class);
-      if (jsonObject == null || !jsonObject.has("liftID") || !jsonObject.has("time")) {
-        sendErrorResponse(response, "Missing required fields (liftID, time)");
-        return null;
-      }
-      return jsonObject;
+      return gson.fromJson(requestBody, JsonObject.class);
     } catch (JsonSyntaxException e) {
       sendErrorResponse(response, "Invalid JSON syntax.");
       return null;
     }
   }
+
   private void sendErrorResponse(HttpServletResponse resp, String message) throws IOException {
     resp.setStatus(HttpServletResponse.SC_BAD_REQUEST);
     resp.getWriter().write(gson.toJson(new ErrorResponse(message)));
   }
 
-  private void sendSuccessResponse(HttpServletResponse resp) throws IOException {
-    resp.setStatus(HttpServletResponse.SC_CREATED);
-    resp.getWriter().write(gson.toJson(new SuccessResponse("Skier processed successfully in queue: skier_queue_1")));
-  }
+
 
   static class ErrorResponse {
     String message;
@@ -192,6 +154,4 @@ public class SkierServlet extends HttpServlet {
     String message;
     SuccessResponse(String message) { this.message = message; }
   }
-
 }
-
