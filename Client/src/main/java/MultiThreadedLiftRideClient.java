@@ -9,14 +9,14 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 
 public class MultiThreadedLiftRideClient {
-    private static final String SERVER_URL = "http://54.186.241.13:8080/assignment4_war";
+    private static final String SERVER_URL = "http://34.213.171.131:8080/assignment4_war";
 //    private static final String SERVER_URL = "http://35.166.130.191:8080/assignment1_war";
     private static final int TOTAL_REQUESTS = 200000;
     private static final int NUMBER_OF_THREADS = 200;
     private static final int REQUEST_PER_THREAD = 1000;
     private static final int REQUEST_PER_INITIAL_THREAD = 1000;
     private static final int PHASE1_THREAD = 32;
-    private static final String redisHost = "34.220.88.62";
+    private static final String redisHost = "35.94.253.133";
     private static final int redisPort = 6379;
 
     public static void main(String[] args) throws InterruptedException, ExecutionException {

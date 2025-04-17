@@ -29,22 +29,69 @@ public class SkierServlet extends HttpServlet {
   //  private static final String PASSWORD = "test_password";
   private static final String PASSWORD = "mypassword";
   //  private static final String HOST = "54.203.65.33";
-  private static final String HOST = "18.237.252.102";
+  private static final String HOST = "54.191.39.166";
   private RabbitMQClient rabbitMQClient;
   private Gson gson = new Gson();
 
-  private static final String REDIS_HOST = "34.220.88.62";
+  private static final String REDIS_HOST = "35.94.253.133";
   private static final int REDIS_PORT = 6379;
-  private static final JedisPool jedisPool = new JedisPool(new JedisPoolConfig(), REDIS_HOST , REDIS_PORT);
+//  private static final JedisPool jedisPool = new JedisPool(new JedisPoolConfig(), REDIS_HOST , REDIS_PORT);
+
+  private static final JedisPool jedisPool;
+  private static final ThreadLocal<Jedis> localJedis = new ThreadLocal<>();
+
+  private static final String SUCCESS_RESPONSE = "{\"message\":\"Skier processed successfully in queue: skier_queue_1\"}";
+  private static final String BAD_REQUEST_ERROR_PREFIX = "{\"message\":\"";
+  private static final String ERROR_SUFFIX = "\"}";
+
+  static {
+    JedisPoolConfig poolConfig = new JedisPoolConfig();
+    poolConfig.setMaxTotal(200);
+    poolConfig.setMaxIdle(50);
+    poolConfig.setMinIdle(10);
+    poolConfig.setTestOnBorrow(false);
+    poolConfig.setTestOnReturn(false);
+    poolConfig.setTestWhileIdle(true);
+    poolConfig.setBlockWhenExhausted(true);
+
+    jedisPool = new JedisPool(poolConfig, REDIS_HOST, REDIS_PORT, 2000);
+  }
+
 
   @Override
   public void init() throws ServletException {
     try {
       rabbitMQClient = new RabbitMQClient(HOST, USERNAME, PASSWORD);
+      warmUpPool();
     } catch (IOException | TimeoutException e) {
       throw new ServletException("Failed to initialize RabbitMQ client", e);
     }
   }
+
+  private void warmUpPool() {
+    try {
+      Jedis[] warmupConnections = new Jedis[10];
+      for (int i = 0; i < warmupConnections.length; i++) {
+        warmupConnections[i] = jedisPool.getResource();
+      }
+      for (Jedis jedis : warmupConnections) {
+        jedis.close();
+      }
+      System.out.println("Redis pool warmed up successfully");
+    } catch (Exception e) {
+      System.err.println("Redis pool warmup failed: " + e.getMessage());
+    }
+  }
+
+  private Jedis getJedis() {
+    Jedis jedis = localJedis.get();
+    if (jedis == null) {
+      jedis = jedisPool.getResource();
+      localJedis.set(jedis);
+    }
+    return jedis;
+  }
+
 
   @Override
   protected void doPost(HttpServletRequest request, HttpServletResponse resp) throws IOException {
@@ -112,6 +159,11 @@ public class SkierServlet extends HttpServlet {
       if (rabbitMQClient != null) {
         rabbitMQClient.close();
       }
+      Jedis jedis = localJedis.get();
+      if (jedis != null) {
+        jedis.close();
+        localJedis.remove();
+      }
     } catch (IOException | TimeoutException e) {
       System.out.println("Failed to close RabbitMQ connection");
     }
@@ -146,7 +198,7 @@ public class SkierServlet extends HttpServlet {
     } catch (Exception e) {
       System.err.println("Error processing request: " + e.getMessage());
       sendErrorResponse(response, HttpServletResponse.SC_INTERNAL_SERVER_ERROR,
-              "An unexpected error occurred: " + e.getMessage());
+          "An unexpected error occurred: " + e.getMessage());
     }
   }
 
@@ -162,12 +214,12 @@ public class SkierServlet extends HttpServlet {
         skierID = Integer.parseInt(pathParts[1]);
         if (skierID < 1 || skierID > 100000) {
           sendErrorResponse(response, HttpServletResponse.SC_BAD_REQUEST,
-                  "Invalid skierID. Must be between 1 and 100000.");
+              "Invalid skierID. Must be between 1 and 100000.");
           return;
         }
       } catch (NumberFormatException e) {
         sendErrorResponse(response, HttpServletResponse.SC_BAD_REQUEST,
-                "Invalid skierID format. Must be an integer.");
+            "Invalid skierID format. Must be an integer.");
         return;
       }
 
@@ -177,7 +229,7 @@ public class SkierServlet extends HttpServlet {
 
       if (resortParam == null || resortParam.trim().isEmpty()) {
         sendErrorResponse(response, HttpServletResponse.SC_BAD_REQUEST,
-                "Resort parameter is required");
+            "Resort parameter is required");
         return;
       }
 
@@ -187,65 +239,58 @@ public class SkierServlet extends HttpServlet {
         resortID = Integer.parseInt(resortParam);
         if (resortID < 1 || resortID > 10) {
           sendErrorResponse(response, HttpServletResponse.SC_BAD_REQUEST,
-                  "Invalid resort ID. Must be between 1 and 10.");
+              "Invalid resort ID. Must be between 1 and 10.");
           return;
         }
       } catch (NumberFormatException e) {
         sendErrorResponse(response, HttpServletResponse.SC_BAD_REQUEST,
-                "Resort must be provided as a resort ID (integer between 1 and 10)");
+            "Resort must be provided as a resort ID (integer between 1 and 10)");
         return;
       }
 
-      // Query Redis for vertical data
-      try (Jedis jedis = jedisPool.getResource()) {
-        Map<String, String> verticalData;
-        int totalVertical = 0;
 
-        if (seasonParam != null && !seasonParam.trim().isEmpty()) {
-          // Validate seasonID (should be 2025)
-          if (!seasonParam.equals("2025")) {
-            sendErrorResponse(response, HttpServletResponse.SC_BAD_REQUEST,
-                    "Invalid season ID. Must be 2025.");
-            return;
-          }
+      Jedis jedis = getJedis();
+      int totalVertical = 0;
 
-          // Get vertical for specific resort and season
-          String resortSeasonField = "resort:" + resortID + ":season:" + seasonParam;
-          String totalByResortSeasonKey = "skier:" + skierID + ":vertical:byResortSeason";
-          String verticalValue = jedis.hget(totalByResortSeasonKey, resortSeasonField);
-
-          if (verticalValue != null) {
-            totalVertical = Integer.parseInt(verticalValue);
-          }
-        } else {
-          // If no season specified, get total vertical for the resort across all seasons
-          String resortField = "resort:" + resortID;
-          String totalByResortKey = "skier:" + skierID + ":vertical:byResort";
-          String verticalValue = jedis.hget(totalByResortKey, resortField);
-
-          if (verticalValue != null) {
-            totalVertical = Integer.parseInt(verticalValue);
-          }
+      if (seasonParam != null && !seasonParam.trim().isEmpty()) {
+        // Validate seasonID (should be 2025)
+        if (!seasonParam.equals("2025")) {
+          sendErrorResponse(response, HttpServletResponse.SC_BAD_REQUEST,
+              "Invalid season ID. Must be 2025.");
+          return;
         }
 
-        // Create response object
-        SkierVertical skierVertical = new SkierVertical();
-        ResortVertical resortVertical = new ResortVertical();
-        resortVertical.setResortID(resortID);
-        resortVertical.setTotalVert(totalVertical);
+        // Get vertical for specific resort and season
+        String resortSeasonField = "resort:" + resortID + ":season:" + seasonParam;
+        String totalByResortSeasonKey = "skier:" + skierID + ":vertical:byResortSeason";
+        String verticalValue = jedis.hget(totalByResortSeasonKey, resortSeasonField);
 
-        List<ResortVertical> resortVerticals = new ArrayList<>();
-        resortVerticals.add(resortVertical);
-        skierVertical.setResorts(resortVerticals);
+        if (verticalValue != null) {
+          totalVertical = Integer.parseInt(verticalValue);
+        }
+      } else {
+        // If no season specified, get total vertical for the resort across all seasons
+        String resortField = "resort:" + resortID;
+        String totalByResortKey = "skier:" + skierID + ":vertical:byResort";
+        String verticalValue = jedis.hget(totalByResortKey, resortField);
 
-        // Send response
-        response.setStatus(HttpServletResponse.SC_OK);
-        out.print(gson.toJson(skierVertical));
+        if (verticalValue != null) {
+          totalVertical = Integer.parseInt(verticalValue);
+        }
       }
+
+      response.setStatus(HttpServletResponse.SC_OK);
+      StringBuilder jsonBuilder = new StringBuilder();
+      jsonBuilder.append("{\"resorts\":[{\"resortID\":")
+          .append(resortID)
+          .append(",\"totalVert\":")
+          .append(totalVertical)
+          .append("}]}");
+      out.print(jsonBuilder.toString());
     } catch (Exception e) {
       System.err.println("Error retrieving vertical data: " + e.getMessage());
       sendErrorResponse(response, HttpServletResponse.SC_INTERNAL_SERVER_ERROR,
-              "Error retrieving vertical data: " + e.getMessage());
+          "Error retrieving vertical data: " + e.getMessage());
     }
   }
 
@@ -259,7 +304,7 @@ public class SkierServlet extends HttpServlet {
       // Validate URL format
       if (pathParts.length != 8) {
         sendErrorResponse(response, HttpServletResponse.SC_BAD_REQUEST,
-                "Invalid URL format. Expected: /skiers/{resortID}/seasons/{seasonID}/days/{dayID}/skiers/{skierID}");
+            "Invalid URL format. Expected: /skiers/{resortID}/seasons/{seasonID}/days/{dayID}/skiers/{skierID}");
         return;
       }
 
@@ -269,12 +314,12 @@ public class SkierServlet extends HttpServlet {
         resortID = Integer.parseInt(pathParts[1]);
         if (resortID < 1 || resortID > 10) {
           sendErrorResponse(response, HttpServletResponse.SC_BAD_REQUEST,
-                  "Invalid resortID. Must be between 1 and 10.");
+              "Invalid resortID. Must be between 1 and 10.");
           return;
         }
       } catch (NumberFormatException e) {
         sendErrorResponse(response, HttpServletResponse.SC_BAD_REQUEST,
-                "Invalid resortID format. Must be an integer.");
+            "Invalid resortID format. Must be an integer.");
         return;
       }
 
@@ -282,7 +327,7 @@ public class SkierServlet extends HttpServlet {
       String seasonID = pathParts[3];
       if (!seasonID.equals("2025")) {
         sendErrorResponse(response, HttpServletResponse.SC_BAD_REQUEST,
-                "Invalid seasonID. Must be 2025.");
+            "Invalid seasonID. Must be 2025.");
         return;
       }
 
@@ -292,12 +337,12 @@ public class SkierServlet extends HttpServlet {
         int day = Integer.parseInt(dayID);
         if (day < 1 || day > 366) {
           sendErrorResponse(response, HttpServletResponse.SC_BAD_REQUEST,
-                  "Invalid dayID. Must be between 1 and 366.");
+              "Invalid dayID. Must be between 1 and 366.");
           return;
         }
       } catch (NumberFormatException e) {
         sendErrorResponse(response, HttpServletResponse.SC_BAD_REQUEST,
-                "Invalid dayID format. Must be an integer.");
+            "Invalid dayID format. Must be an integer.");
         return;
       }
 
@@ -307,62 +352,59 @@ public class SkierServlet extends HttpServlet {
         skierID = Integer.parseInt(pathParts[7]);
         if (skierID < 1 || skierID > 100000) {
           sendErrorResponse(response, HttpServletResponse.SC_BAD_REQUEST,
-                  "Invalid skierID. Must be between 1 and 100000.");
+              "Invalid skierID. Must be between 1 and 100000.");
           return;
         }
       } catch (NumberFormatException e) {
         sendErrorResponse(response, HttpServletResponse.SC_BAD_REQUEST,
-                "Invalid skierID format. Must be an integer.");
+            "Invalid skierID format. Must be an integer.");
         return;
       }
 
-      // Query Redis for vertical data
+      Jedis jedis = getJedis();
       int totalVertical = 0;
 
-      try (Jedis jedis = jedisPool.getResource()) {
-        // Method 1: Try to get detailed vertical data (if implemented)
-        String detailedVerticalKey = "skier:" + skierID + ":vertical:detailed";
-        String detailedField = "resort:" + resortID + ":season:" + seasonID + ":day:" + dayID;
-        String detailedValue = jedis.hget(detailedVerticalKey, detailedField);
+      // Method 1: Try to get detailed vertical data (if implemented)
+      String detailedVerticalKey = "skier:" + skierID + ":vertical:detailed";
+      String detailedField = "resort:" + resortID + ":season:" + seasonID + ":day:" + dayID;
+      String detailedValue = jedis.hget(detailedVerticalKey, detailedField);
 
-        if (detailedValue != null) {
-          totalVertical = Integer.parseInt(detailedValue);
-        } else {
-          // Method 2: Calculate from all lift rides for the day
-          String skierDayKey = "skier:" + skierID + ":" + seasonID + ":" + dayID;
-          Map<String, String> liftRides = jedis.hgetAll(skierDayKey);
+      if (detailedValue != null) {
+        totalVertical = Integer.parseInt(detailedValue);
+      } else {
+        // Method 2: Calculate from all lift rides for the day
+        String skierDayKey = "skier:" + skierID + ":" + seasonID + ":" + dayID;
+        Map<String, String> liftRides = jedis.hgetAll(skierDayKey);
 
-          // Sum vertical for each lift ride (assuming 10 vertical units per lift ID)
-          for (String liftEntry : liftRides.keySet()) {
-            if (liftEntry.startsWith("liftID: ")) {
-              int liftID = Integer.parseInt(liftEntry.substring(8).trim());
-              // Validate liftID is between 1 and 40
-              if (liftID >= 1 && liftID <= 40) {
-                totalVertical += liftID * 10;
-              }
-            }
-          }
-
-          // Method 3: Try getting from daily vertical record as fallback
-          if (totalVertical == 0) {
-            String verticalKey = "skier:" + skierID + ":vertical";
-            String field = "day:" + dayID;
-            String verticalValue = jedis.hget(verticalKey, field);
-
-            if (verticalValue != null) {
-              totalVertical = Integer.parseInt(verticalValue);
+        // Sum vertical for each lift ride (assuming 10 vertical units per lift ID)
+        for (String liftEntry : liftRides.keySet()) {
+          if (liftEntry.startsWith("liftID: ")) {
+            int liftID = Integer.parseInt(liftEntry.substring(8).trim());
+            // Validate liftID is between 1 and 40
+            if (liftID >= 1 && liftID <= 40) {
+              totalVertical += liftID * 10;
             }
           }
         }
 
-        // Send response
-        response.setStatus(HttpServletResponse.SC_OK);
-        out.print(totalVertical);
+        // Method 3: Try getting from daily vertical record as fallback
+        if (totalVertical == 0) {
+          String verticalKey = "skier:" + skierID + ":vertical";
+          String field = "day:" + dayID;
+          String verticalValue = jedis.hget(verticalKey, field);
+
+          if (verticalValue != null) {
+            totalVertical = Integer.parseInt(verticalValue);
+          }
+        }
       }
+
+      response.setStatus(HttpServletResponse.SC_OK);
+      out.print(totalVertical);
     } catch (Exception e) {
       System.err.println("Error retrieving vertical data: " + e.getMessage());
       sendErrorResponse(response, HttpServletResponse.SC_INTERNAL_SERVER_ERROR,
-              "Error retrieving vertical data: " + e.getMessage());
+          "Error retrieving vertical data: " + e.getMessage());
     }
   }
 
@@ -399,71 +441,17 @@ public class SkierServlet extends HttpServlet {
 
   private void sendErrorResponse(HttpServletResponse resp, String message) throws IOException {
     resp.setStatus(HttpServletResponse.SC_BAD_REQUEST);
-    resp.getWriter().write(gson.toJson(new ErrorResponse(message)));
+    resp.getWriter().write(BAD_REQUEST_ERROR_PREFIX + message + ERROR_SUFFIX);
   }
 
   private void sendErrorResponse(HttpServletResponse response, int statusCode, String message) throws IOException {
     response.setStatus(statusCode);
     PrintWriter out = response.getWriter();
-    ErrorResponse errorMsg = new ErrorResponse(message);
-    out.print(gson.toJson(errorMsg));
+    out.print(BAD_REQUEST_ERROR_PREFIX + message + ERROR_SUFFIX);
   }
 
   private void sendSuccessResponse(HttpServletResponse resp) throws IOException {
     resp.setStatus(HttpServletResponse.SC_CREATED);
-    resp.getWriter().write(gson.toJson(new SuccessResponse("Skier processed successfully in queue: skier_queue_1")));
-  }
-
-
-  static class ErrorResponse {
-    String message;
-    ErrorResponse(String message) { this.message = message; }
-  }
-
-  static class SuccessResponse {
-    String message;
-    SuccessResponse(String message) { this.message = message; }
-  }
-
-  static class SkierVertical {
-    private List<ResortVertical> resorts;
-
-    public List<ResortVertical> getResorts() {
-      return resorts;
-    }
-
-    public void setResorts(List<ResortVertical> resorts) {
-      this.resorts = resorts;
-    }
-  }
-
-  static class ResortVertical {
-    private int resortID;
-    private String seasonID; // Optional
-    private int totalVert;
-
-    public int getResortID() {
-      return resortID;
-    }
-
-    public void setResortID(int resortID) {
-      this.resortID = resortID;
-    }
-
-    public String getSeasonID() {
-      return seasonID;
-    }
-
-    public void setSeasonID(String seasonID) {
-      this.seasonID = seasonID;
-    }
-
-    public int getTotalVert() {
-      return totalVert;
-    }
-
-    public void setTotalVert(int totalVert) {
-      this.totalVert = totalVert;
-    }
+    resp.getWriter().write(SUCCESS_RESPONSE);
   }
 }

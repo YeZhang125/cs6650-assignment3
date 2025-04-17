@@ -1,6 +1,9 @@
 package org.assignment4;
 
 import com.google.gson.Gson;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import javax.servlet.ServletException;
 import redis.clients.jedis.Jedis;
 import redis.clients.jedis.JedisPool;
 import redis.clients.jedis.JedisPoolConfig;
@@ -18,10 +21,66 @@ import java.io.PrintWriter;
 @WebServlet(name = "org.assignment4.ResortServlet", urlPatterns = "/resorts/*")
 public class ResortServlet extends HttpServlet {
     // Reuse the same Redis connection info from org.assignment4.SkierServlet
-    private static final String REDIS_HOST = "34.220.88.62";
+    private static final String REDIS_HOST = "35.94.253.133";
     private static final int REDIS_PORT = 6379;
-    private static final JedisPool jedisPool = new JedisPool(new JedisPoolConfig(), REDIS_HOST, REDIS_PORT);
+    private static final JedisPool jedisPool;
     private Gson gson = new Gson();
+    private static final ThreadLocal<Jedis> localJedis = new ThreadLocal<>();
+
+
+    static {
+        JedisPoolConfig poolConfig = new JedisPoolConfig();
+        poolConfig.setMaxTotal(200);
+        poolConfig.setMaxIdle(50);
+        poolConfig.setMinIdle(10);
+        poolConfig.setTestOnBorrow(false);
+        poolConfig.setTestOnReturn(false);
+        poolConfig.setTestWhileIdle(true);
+        poolConfig.setBlockWhenExhausted(true);
+
+        jedisPool = new JedisPool(poolConfig, REDIS_HOST, REDIS_PORT, 2000);
+    }
+
+    @Override
+    public void init() throws ServletException {
+        super.init();
+        warmUpPool();
+    }
+
+
+    private void warmUpPool() {
+        try {
+            Jedis[] warmupConnections = new Jedis[10];
+            for (int i = 0; i < warmupConnections.length; i++) {
+                warmupConnections[i] = jedisPool.getResource();
+            }
+            for (Jedis jedis : warmupConnections) {
+                jedis.close();
+            }
+        } catch (Exception e) {
+            getServletContext().log("Redis pool warmup failed: " + e.getMessage());
+        }
+    }
+
+
+    private Jedis getJedis() {
+        Jedis jedis = localJedis.get();
+        if (jedis == null) {
+            jedis = jedisPool.getResource();
+            localJedis.set(jedis);
+        }
+        return jedis;
+    }
+
+    @Override
+    public void destroy() {
+        super.destroy();
+        Jedis jedis = localJedis.get();
+        if (jedis != null) {
+            jedis.close();
+            localJedis.remove();
+        }
+    }
 
     @Override
     protected void doGet(HttpServletRequest request, HttpServletResponse response) throws IOException {
@@ -40,43 +99,39 @@ public class ResortServlet extends HttpServlet {
             // Check for the specific endpoint pattern
             // /resorts/{resortID}/seasons/{seasonID}/day/{dayID}/skiers
             if (pathParts.length == 7 &&
-                    pathParts[2].equals("seasons") &&
-                    pathParts[4].equals("day") &&
-                    pathParts[6].equals("skiers")) {
+                pathParts[2].equals("seasons") &&
+                pathParts[4].equals("day") &&
+                pathParts[6].equals("skiers")) {
 
                 handleResortDaySkiersRequest(request, response, pathParts);
             } else {
                 // Handle other resort-related endpoints or return a "not implemented" response
                 sendErrorResponse(response, HttpServletResponse.SC_NOT_IMPLEMENTED,
-                        "This endpoint is not implemented");
+                    "This endpoint is not implemented");
             }
         } catch (Exception e) {
             System.err.println("Error processing request: " + e.getMessage());
             sendErrorResponse(response, HttpServletResponse.SC_INTERNAL_SERVER_ERROR,
-                    "An unexpected error occurred: " + e.getMessage());
+                "An unexpected error occurred: " + e.getMessage());
         }
     }
 
-    /**
-     * Handles the GET request for /resorts/{resortID}/seasons/{seasonID}/day/{dayID}/skiers
-     * Returns the number of unique skiers at the specified resort on the specified day
-     */
     private void handleResortDaySkiersRequest(HttpServletRequest request, HttpServletResponse response, String[] pathParts) throws IOException {
         PrintWriter out = response.getWriter();
 
         try {
-            // Parse and validate resortID (between 1 and 10)
+            // Parse and validate resortID
             int resortID;
             try {
                 resortID = Integer.parseInt(pathParts[1]);
                 if (resortID < 1 || resortID > 10) {
                     sendErrorResponse(response, HttpServletResponse.SC_BAD_REQUEST,
-                            "Invalid resortID. Must be between 1 and 10.");
+                        "Invalid resortID. Must be between 1 and 10.");
                     return;
                 }
             } catch (NumberFormatException e) {
                 sendErrorResponse(response, HttpServletResponse.SC_BAD_REQUEST,
-                        "Invalid resortID format. Must be an integer.");
+                    "Invalid resortID format. Must be an integer.");
                 return;
             }
 
@@ -84,7 +139,7 @@ public class ResortServlet extends HttpServlet {
             String seasonID = pathParts[3];
             if (!seasonID.equals("2025")) {
                 sendErrorResponse(response, HttpServletResponse.SC_BAD_REQUEST,
-                        "Invalid seasonID. Must be 2025.");
+                    "Invalid seasonID. Must be 2025.");
                 return;
             }
 
@@ -94,57 +149,36 @@ public class ResortServlet extends HttpServlet {
                 int day = Integer.parseInt(dayID);
                 if (day < 1 || day > 366) {
                     sendErrorResponse(response, HttpServletResponse.SC_BAD_REQUEST,
-                            "Invalid dayID. Must be between 1 and 366.");
+                        "Invalid dayID. Must be between 1 and 366.");
                     return;
                 }
             } catch (NumberFormatException e) {
                 sendErrorResponse(response, HttpServletResponse.SC_BAD_REQUEST,
-                        "Invalid dayID format. Must be an integer.");
+                    "Invalid dayID format. Must be an integer.");
                 return;
             }
 
             // Query Redis for the number of unique skiers
-            long uniqueSkiers = 0;
-            try (Jedis jedis = jedisPool.getResource()) {
-                // The key format matches what we have in SkierConsumer.java
-                String resortKey = "resort:" + resortID + ":season:" + seasonID + ":day:" + dayID + ":skiers";
-                uniqueSkiers = jedis.scard(resortKey); // Get the count of unique skiers using SCARD
-            }
+            Jedis jedis = getJedis();
+            String resortKey = "resort:" + resortID + ":season:" + seasonID + ":day:" + dayID + ":skiers";
+            long uniqueSkiers = jedis.scard(resortKey);
 
-            // Create and send the response
+
             response.setStatus(HttpServletResponse.SC_OK);
-            SkierCount skierCount = new SkierCount((int) uniqueSkiers);
-            out.print(gson.toJson(skierCount));
+            out.print("{\"uniqueSkiers\":" + uniqueSkiers + "}");
         } catch (Exception e) {
             System.err.println("Error retrieving unique skiers count: " + e.getMessage());
             sendErrorResponse(response, HttpServletResponse.SC_INTERNAL_SERVER_ERROR,
-                    "Error retrieving unique skiers count: " + e.getMessage());
+                "Error retrieving unique skiers count: " + e.getMessage());
         }
     }
 
-    /**
-     * Sends an error response with the specified status code and message
-     */
+    private static final String BAD_REQUEST_ERROR_PREFIX = "{\"message\":\"";
+    private static final String ERROR_SUFFIX = "\"}";
+
     private void sendErrorResponse(HttpServletResponse response, int statusCode, String message) throws IOException {
         response.setStatus(statusCode);
         PrintWriter out = response.getWriter();
-        ErrorResponse errorMsg = new ErrorResponse(message);
-        out.print(gson.toJson(errorMsg));
-    }
-
-    /**
-     * Error response class for consistent error formatting
-     */
-    static class ErrorResponse {
-        String message;
-        ErrorResponse(String message) { this.message = message; }
-    }
-
-    /**
-     * Response class for the unique skier count
-     */
-    static class SkierCount {
-        int uniqueSkiers;
-        SkierCount(int uniqueSkiers) { this.uniqueSkiers = uniqueSkiers; }
+        out.print(BAD_REQUEST_ERROR_PREFIX + message + ERROR_SUFFIX);
     }
 }

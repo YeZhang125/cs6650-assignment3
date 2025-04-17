@@ -13,7 +13,7 @@ import java.util.concurrent.*;
 public class SkierConsumer {
     // private static final String HOST = "54.203.65.33";
     // private static final String QUEUE_NAME = "skier_queue";
-    private static final String HOST = "18.237.252.102";
+    private static final String HOST = "54.191.39.166";
     private static final String QUEUE_NAME = "skier_records";
     private static final int THREAD_COUNT = 5;
     private static final int PREFETCH_COUNT = 100;
@@ -22,8 +22,9 @@ public class SkierConsumer {
     private Connection connection;
     private static ExecutorService executorService;
     // private static final String DBHost = "54.213.220.110";
-    private static final String DBHost = "34.220.88.62";
+    private static final String DBHost = "35.94.253.133";
     private static final JedisPool jedisPool = new JedisPool(new JedisPoolConfig(), DBHost , 6379);
+    private static final ExecutorService redisExecutor = Executors.newFixedThreadPool(10);
 
     public static void main(String[] args) throws Exception {
 
@@ -136,7 +137,7 @@ public class SkierConsumer {
         }
 
         private void storeMessage(String message) {
-//            CompletableFuture.runAsync(() -> {
+            CompletableFuture.runAsync(() -> {
                 try(Jedis jedis = jedisPool.getResource()){
                     JsonObject jsonObject =  JsonParser.parseString(message).getAsJsonObject();
                     int skierID = jsonObject.get("skierID").getAsInt();
@@ -199,7 +200,7 @@ public class SkierConsumer {
                     System.err.println("Error getting Redis connection: " + e.getMessage());
                     e.printStackTrace();
                 }
-//            }, executorService);
+            }, redisExecutor);
         }
 
     }
