@@ -12,7 +12,7 @@ public class SkierLiftProducer {
     public static SkierLiftEvent generateSkierLiftEvent() {
         SkierLiftEvent event = new SkierLiftEvent();
         int skierID = random.nextInt(100000) + 1;
-        int resortID = random.nextInt(10) + 1;
+        int resortID = 3;
         int liftID = random.nextInt(40) + 1;
         int time = random.nextInt(360) + 1;
         int seasonID = 2025;

@@ -9,15 +9,18 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 
 public class MultiThreadedLiftRideClient {
-    private static final String SERVER_URL = "http://cs6650-369107167.us-west-2.elb.amazonaws.com/connect_to_rmq";
+    private static final String SERVER_URL = "http://54.186.241.13:8080/assignment4_war";
 //    private static final String SERVER_URL = "http://35.166.130.191:8080/assignment1_war";
     private static final int TOTAL_REQUESTS = 200000;
     private static final int NUMBER_OF_THREADS = 200;
     private static final int REQUEST_PER_THREAD = 1000;
     private static final int REQUEST_PER_INITIAL_THREAD = 1000;
     private static final int PHASE1_THREAD = 32;
+    private static final String redisHost = "34.220.88.62";
+    private static final int redisPort = 6379;
 
     public static void main(String[] args) throws InterruptedException, ExecutionException {
+        clearRedisDB();
         // Run client tests for day values 1, 2, and 3
         for (int day = 1; day <= 3; day++) {
             System.out.println("\n========= STARTING RUN FOR DAY " + day + " =========\n");
@@ -28,6 +31,16 @@ public class MultiThreadedLiftRideClient {
                 System.out.println("\nPausing for 5 seconds before next run...\n");
                 Thread.sleep(5000);
             }
+        }
+    }
+
+    private static void clearRedisDB() {
+
+        try (redis.clients.jedis.Jedis jedis = new redis.clients.jedis.Jedis(redisHost, redisPort)) {
+            jedis.flushAll();
+            System.out.println("Redis database cleared before running all tests.");
+        } catch (Exception e) {
+            System.err.println("Failed to clear Redis: " + e.getMessage());
         }
     }
 

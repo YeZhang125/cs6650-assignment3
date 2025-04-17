@@ -13,16 +13,16 @@ import java.util.concurrent.*;
 public class SkierConsumer {
     // private static final String HOST = "54.203.65.33";
     // private static final String QUEUE_NAME = "skier_queue";
-    private static final String HOST = "34.220.128.228";
+    private static final String HOST = "18.237.252.102";
     private static final String QUEUE_NAME = "skier_records";
     private static final int THREAD_COUNT = 5;
     private static final int PREFETCH_COUNT = 100;
-    private static final   String USERNAME = "admin";
-    private static final String PASSWORD = "admin";
+    private static final   String USERNAME = "myuser";
+    private static final String PASSWORD = "mypassword";
     private Connection connection;
     private static ExecutorService executorService;
     // private static final String DBHost = "54.213.220.110";
-    private static final String DBHost = "54.71.181.20";
+    private static final String DBHost = "34.220.88.62";
     private static final JedisPool jedisPool = new JedisPool(new JedisPoolConfig(), DBHost , 6379);
 
     public static void main(String[] args) throws Exception {
@@ -79,18 +79,8 @@ public class SkierConsumer {
             if (connection != null) {
                 connection.close();
             }
-            clearRedisData();
         } catch (InterruptedException | IOException e) {
             System.err.println("Error during shutdown: " + e.getMessage());
-        }
-    }
-
-    public void clearRedisData() {
-        try (Jedis jedis = jedisPool.getResource()) {
-            jedis.flushAll();
-            System.out.println("All Redis data cleared.");
-        } catch (Exception e) {
-            System.err.println("Error clearing Redis data: " + e.getMessage());
         }
     }
 
@@ -117,7 +107,7 @@ public class SkierConsumer {
 
                 channel.basicConsume(queueName, false, (consumerTag, delivery) -> {
                     String message = new String(delivery.getBody(), StandardCharsets.UTF_8);
-                    System.out.println(" [x] Received from " + queueName + ": " + message);
+//                    System.out.println(" [x] Received from " + queueName + ": " + message);
 
                     try {
                         storeMessage(message);  // Process message
@@ -146,15 +136,18 @@ public class SkierConsumer {
         }
 
         private void storeMessage(String message) {
-            CompletableFuture.runAsync(() -> {
+//            CompletableFuture.runAsync(() -> {
                 try(Jedis jedis = jedisPool.getResource()){
                     JsonObject jsonObject =  JsonParser.parseString(message).getAsJsonObject();
                     int skierID = jsonObject.get("skierID").getAsInt();
                     int liftID = jsonObject.get("liftID").getAsInt();
                     int resortID = jsonObject.get("resortID").getAsInt();
-                    int dayID = jsonObject.get("dayID").getAsInt();
-                    int seasonID = jsonObject.get("seasonID").getAsInt();
-                    int time = jsonObject.get("time").getAsInt();
+                    int dayID = Integer.parseInt(jsonObject.get("dayID").getAsString());
+                    int seasonID = Integer.parseInt(jsonObject.get("seasonID").getAsString());
+                    int time = Integer.parseInt(jsonObject.get("time").getAsString());
+
+                    System.out.println("Parsed seasonID = " + seasonID);
+                    System.out.println("Writing to resort key: resort:" + resortID + ":season:" + seasonID + ":day:" + dayID + ":skiers");
 
                     // For skier N, how many days have they skied this season?
                     // Increment the number of days skied for the current season by 1
@@ -178,11 +171,6 @@ public class SkierConsumer {
                     String field = "day:" + dayID;
                     jedis.hincrBy(verticalKey,field, liftID * 10);
 
-
-                    // How many unique skiers visited resort X on day N
-                    // SCARD resort:1:day:10:skiers would return the total number of unique skiers who visited resort 1 on day 10.
-                    String resortKey = "resort:" + resortID + ":day:" + dayID + ":skiers";
-                    jedis.sadd(resortKey,"The total number of unique skiers: "+ String.valueOf(skierID));
 
 
 
@@ -209,8 +197,9 @@ public class SkierConsumer {
 
                 }catch (Exception e ){
                     System.err.println("Error getting Redis connection: " + e.getMessage());
+                    e.printStackTrace();
                 }
-            }, executorService);
+//            }, executorService);
         }
 
     }
