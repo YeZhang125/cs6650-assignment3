@@ -11,16 +11,20 @@ import java.nio.charset.StandardCharsets;
 import java.util.concurrent.*;
 
 public class SkierConsumer {
-    private static final String HOST = "54.203.65.33";
-    private static final String QUEUE_NAME = "skier_queue";
+    // private static final String HOST = "54.203.65.33";
+    // private static final String QUEUE_NAME = "skier_queue";
+    private static final String HOST = "54.191.39.166";
+    private static final String QUEUE_NAME = "skier_records";
     private static final int THREAD_COUNT = 5;
     private static final int PREFETCH_COUNT = 100;
-    private static final   String USERNAME = "test_user";
-    private static final String PASSWORD = "test_password";
+    private static final   String USERNAME = "myuser";
+    private static final String PASSWORD = "mypassword";
     private Connection connection;
     private static ExecutorService executorService;
-    private static final String DBHost = "54.213.220.110";
+    // private static final String DBHost = "54.213.220.110";
+    private static final String DBHost = "35.94.253.133";
     private static final JedisPool jedisPool = new JedisPool(new JedisPoolConfig(), DBHost , 6379);
+    private static final ExecutorService redisExecutor = Executors.newFixedThreadPool(10);
 
     public static void main(String[] args) throws Exception {
 
@@ -76,18 +80,8 @@ public class SkierConsumer {
             if (connection != null) {
                 connection.close();
             }
-            clearRedisData();
         } catch (InterruptedException | IOException e) {
             System.err.println("Error during shutdown: " + e.getMessage());
-        }
-    }
-
-    public void clearRedisData() {
-        try (Jedis jedis = jedisPool.getResource()) {
-            jedis.flushAll();
-            System.out.println("All Redis data cleared.");
-        } catch (Exception e) {
-            System.err.println("Error clearing Redis data: " + e.getMessage());
         }
     }
 
@@ -114,7 +108,7 @@ public class SkierConsumer {
 
                 channel.basicConsume(queueName, false, (consumerTag, delivery) -> {
                     String message = new String(delivery.getBody(), StandardCharsets.UTF_8);
-                    System.out.println(" [x] Received from " + queueName + ": " + message);
+//                    System.out.println(" [x] Received from " + queueName + ": " + message);
 
                     try {
                         storeMessage(message);  // Process message
@@ -149,15 +143,19 @@ public class SkierConsumer {
                     int skierID = jsonObject.get("skierID").getAsInt();
                     int liftID = jsonObject.get("liftID").getAsInt();
                     int resortID = jsonObject.get("resortID").getAsInt();
-                    int dayID = jsonObject.get("dayID").getAsInt();
-                    int seasonID = jsonObject.get("seasonID").getAsInt();
-                    int time = jsonObject.get("time").getAsInt();
+                    int dayID = Integer.parseInt(jsonObject.get("dayID").getAsString());
+                    int seasonID = Integer.parseInt(jsonObject.get("seasonID").getAsString());
+                    int time = Integer.parseInt(jsonObject.get("time").getAsString());
+
+                    System.out.println("Parsed seasonID = " + seasonID);
+                    System.out.println("Writing to resort key: resort:" + resortID + ":season:" + seasonID + ":day:" + dayID + ":skiers");
 
                     // For skier N, how many days have they skied this season?
                     // Increment the number of days skied for the current season by 1
                     // GET skier:123:2025:days_skied
                     String skierSeasonKey = "skier:" + skierID + ":" + seasonID + ":days_skied";
                     jedis.incrBy(skierSeasonKey, 1);
+
 
                     // For skier N, show me the lifts they rode on each ski day
                     // HGETALL skier:<skierID>:<seasonID>:<dayID>
@@ -174,17 +172,36 @@ public class SkierConsumer {
                     String field = "day:" + dayID;
                     jedis.hincrBy(verticalKey,field, liftID * 10);
 
-                    // How many unique skiers visited resort X on day N
-                    // SCARD resort:1:day:10:skiers would return the total number of unique skiers who visited resort 1 on day 10.
-                    String resortKey = "resort:" + resortID + ":day:" + dayID + ":skiers";
-                    jedis.sadd(resortKey,"The total number of unique skiers: "+ String.valueOf(skierID));
+
+
+
+                    // Modified
+                    // Supports API: GET /skiers/{skierID}/vertical?resort={resortID}
+                    // Enables efficient querying of vertical totals for a specific resort
+                    String verticalByResortKey = "skier:" + skierID + ":vertical:byResort";
+                    String resortField = "resort:" + resortID;
+                    jedis.hincrBy(verticalByResortKey, resortField, liftID * 10);
+
+                    // Supports API: GET /skiers/{skierID}/vertical?resort={resortID}&season={seasonID}
+                    // Tracks vertical totals for a specific resort and season combination
+                    String verticalByResortSeasonKey = "skier:" + skierID + ":vertical:byResortSeason";
+                    String resortSeasonField = "resort:" + resortID + ":season:" + seasonID;
+                    jedis.hincrBy(verticalByResortSeasonKey, resortSeasonField, liftID * 10);
+
+                    // Supports API: GET /resorts/{resortID}/seasons/{seasonID}/day/{dayID}/skiers
+                    // Supports Query: "How many unique skiers visited resort X on day N?"
+                    // Tracks unique skiers at a specific resort on a specific day in a season
+                    String resortKeyWithSeason = "resort:" + resortID + ":season:" + seasonID + ":day:" + dayID + ":skiers";
+                    jedis.sadd(resortKeyWithSeason, String.valueOf(skierID));
+
+
 
                 }catch (Exception e ){
                     System.err.println("Error getting Redis connection: " + e.getMessage());
+                    e.printStackTrace();
                 }
-            }, executorService);
+            }, redisExecutor);
         }
-
 
     }
 }
